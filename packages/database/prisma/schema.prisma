@@ -1,0 +1,460 @@
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  USER
+  INSTITUTION_STAFF
+  INSTITUTION_ADMIN
+  PLATFORM_ADMIN
+}
+
+enum InstitutionRole {
+  ADMIN
+  STAFF
+}
+
+enum InstitutionType {
+  UNIVERSITY
+  COLLEGE
+  SCHOOL
+  AIRPORT
+  RAILWAY_STATION
+  METRO_STATION
+  BUS_TERMINAL
+  SHOPPING_MALL
+  HOSPITAL
+  PUBLIC_OFFICE
+  OTHER
+}
+
+enum InstitutionStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  SUSPENDED
+  REJECTED
+}
+
+enum ItemType {
+  LOST
+  FOUND
+}
+
+enum ItemStatus {
+  OPEN
+  CLAIM_PENDING
+  RECOVERED
+  CLOSED
+  EXPIRED
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  ADDITIONAL_INFO_REQUESTED
+  VERIFIED
+  REJECTED
+  HANDOVER_SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum EvidenceType {
+  INVOICE_RECEIPT
+  PHOTO_PROOF
+  SERIAL_NUMBER_IMEI
+  ID_DOCUMENT
+  DESCRIPTION
+}
+
+enum MatchStatus {
+  POTENTIAL
+  NOTIFIED
+  CONFIRMED_MATCH
+  DISMISSED
+}
+
+enum NotificationType {
+  MATCH_FOUND
+  CLAIM_STATUS_UPDATED
+  REPORT_STATUS_UPDATED
+  INSTITUTION_VERIFIED
+  STAFF_INVITATION
+  SECURITY_ALERT
+  SYSTEM
+}
+
+enum ModerationStatus {
+  OPEN
+  IN_REVIEW
+  ACTION_TAKEN
+  DISMISSED
+}
+
+enum OAuthProvider {
+  GOOGLE
+  FACEBOOK
+}
+
+// 1. User Entity
+model User {
+  id              String              @id @default(auto()) @map("_id") @db.ObjectId
+  email           String              @unique
+  passwordHash    String?
+  fullName        String
+  phoneNumber     String?
+  role            UserRole            @default(USER)
+  isEmailVerified Boolean             @default(false)
+  emailVerifiedAt DateTime?
+  avatarUrl       String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  deletedAt       DateTime?
+
+  sessions        Session[]
+  oauthAccounts   OAuthAccount[]
+  memberships     InstitutionMember[]
+  reportedItems   Item[]              @relation("ReportedByUser")
+  claims          Claim[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+  moderationCases ModerationCase[]    @relation("ReportedByUserModeration")
+
+  @@index([role])
+}
+
+// 1b. OAuthAccount Entity (Google / Facebook external identity links)
+model OAuthAccount {
+  id                String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId            String        @db.ObjectId
+  provider          OAuthProvider
+  providerAccountId String
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         Int?
+  tokenType         String?
+  scope             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// 2. Session Entity
+model Session {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// 3. Institution Entity
+model Institution {
+  id            String            @id @default(auto()) @map("_id") @db.ObjectId
+  name          String
+  code          String            @unique
+  type          InstitutionType
+  status        InstitutionStatus @default(PENDING_VERIFICATION)
+  verifiedAt    DateTime?
+  officialEmail String
+  contactNumber String?
+  websiteUrl    String?
+  address       String?
+  city          String
+  state         String
+  postalCode    String?
+  logoUrl       String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  deletedAt     DateTime?
+
+  members         InstitutionMember[]
+  items           Item[]
+  auditLogs       AuditLog[]
+  moderationCases ModerationCase[]
+
+  @@index([status])
+  @@index([city, state])
+}
+
+// 4. InstitutionMember Entity
+model InstitutionMember {
+  id            String          @id @default(auto()) @map("_id") @db.ObjectId
+  institutionId String          @db.ObjectId
+  userId        String          @db.ObjectId
+  role          InstitutionRole @default(STAFF)
+  isActive      Boolean         @default(true)
+  invitedAt     DateTime        @default(now())
+  joinedAt      DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  institution Institution @relation(fields: [institutionId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([institutionId, userId])
+  @@index([institutionId])
+  @@index([userId])
+}
+
+// 5. Category Entity
+model Category {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  iconName    String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  items Item[]
+}
+
+// 6. Location Entity
+model Location {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  address    String?
+  landmark   String?
+  city       String
+  state      String
+  postalCode String?
+  latitude   Float?
+  longitude  Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  items Item[]
+
+  @@index([city, state])
+  @@index([postalCode])
+}
+
+// 7. Item Entity
+model Item {
+  id                String     @id @default(auto()) @map("_id") @db.ObjectId
+  type              ItemType
+  status            ItemStatus @default(OPEN)
+  title             String
+  categoryId        String     @db.ObjectId
+  locationId        String     @db.ObjectId
+  institutionId     String?    @db.ObjectId
+  reportedByUserId  String     @db.ObjectId
+  dateLostOrFound   DateTime
+  publicDescription String
+  privateDetails    String?
+  contactPreference String?
+  isPublished       Boolean    @default(true)
+  recoveredAt       DateTime?
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+  deletedAt         DateTime?
+
+  category    Category     @relation(fields: [categoryId], references: [id])
+  location    Location     @relation(fields: [locationId], references: [id])
+  institution Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+  reportedBy  User         @relation("ReportedByUser", fields: [reportedByUserId], references: [id])
+
+  images          ItemImage[]
+  reports         Report[]
+  claims          Claim[]
+  matchesAsLost   Match[]          @relation("LostItemMatches")
+  matchesAsFound  Match[]          @relation("FoundItemMatches")
+  moderationCases ModerationCase[]
+
+  @@index([type, status])
+  @@index([categoryId])
+  @@index([locationId])
+  @@index([institutionId])
+  @@index([reportedByUserId])
+  @@index([dateLostOrFound])
+  @@index([createdAt])
+}
+
+// 8. ItemImage Entity
+model ItemImage {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  itemId    String   @db.ObjectId
+  url       String
+  key       String
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+}
+
+// 9. Report Entity (External or formal incident record)
+model Report {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  itemId             String   @db.ObjectId
+  referenceNumber    String   @unique
+  policeReportNumber String?
+  remarks            String?
+  isInstitutional    Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+}
+
+// 10. Match Entity
+model Match {
+  id              String      @id @default(auto()) @map("_id") @db.ObjectId
+  lostItemId      String      @db.ObjectId
+  foundItemId     String      @db.ObjectId
+  confidenceScore Float
+  status          MatchStatus @default(POTENTIAL)
+  ruleScore       Float?
+  notes           String?
+  dismissedReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  lostItem  Item @relation("LostItemMatches", fields: [lostItemId], references: [id], onDelete: Cascade)
+  foundItem Item @relation("FoundItemMatches", fields: [foundItemId], references: [id], onDelete: Cascade)
+
+  @@unique([lostItemId, foundItemId])
+  @@index([lostItemId])
+  @@index([foundItemId])
+  @@index([status])
+}
+
+// 11. Claim Entity
+model Claim {
+  id                String      @id @default(auto()) @map("_id") @db.ObjectId
+  itemId            String      @db.ObjectId
+  claimantId        String      @db.ObjectId
+  status            ClaimStatus @default(SUBMITTED)
+  verificationNotes String?
+  reviewedByUserId  String?     @db.ObjectId
+  reviewedAt        DateTime?
+  rejectionReason   String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  deletedAt         DateTime?
+
+  item           Item            @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  claimant       User            @relation(fields: [claimantId], references: [id], onDelete: Cascade)
+  evidence       ClaimEvidence[]
+  handoverRecord HandoverRecord?
+
+  @@index([itemId])
+  @@index([claimantId])
+  @@index([status])
+}
+
+// 12. ClaimEvidence Entity
+model ClaimEvidence {
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  claimId     String       @db.ObjectId
+  type        EvidenceType
+  description String?
+  fileUrl     String?
+  isVerified  Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId])
+}
+
+// 13. HandoverRecord Entity
+model HandoverRecord {
+  id                  String    @id @default(auto()) @map("_id") @db.ObjectId
+  claimId             String    @unique @db.ObjectId
+  scheduledDate       DateTime?
+  completedDate       DateTime?
+  handoverLocation    String
+  verifiedByIdType    String?
+  verifiedByIdLast4   String?
+  staffSignoffName    String
+  claimantSignoffName String
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+}
+
+// 14. Notification Entity
+model Notification {
+  id        String           @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String           @db.ObjectId
+  type      NotificationType
+  title     String
+  message   String
+  linkUrl   String?
+  isRead    Boolean          @default(false)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+// 15. AuditLog Entity
+model AuditLog {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId        String?  @db.ObjectId
+  institutionId String?  @db.ObjectId
+  action        String
+  entityType    String
+  entityId      String?
+  details       Json?
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  institution Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([institutionId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// 16. ModerationCase Entity
+model ModerationCase {
+  id               String           @id @default(auto()) @map("_id") @db.ObjectId
+  itemId           String?          @db.ObjectId
+  reportedByUserId String           @db.ObjectId
+  institutionId    String?          @db.ObjectId
+  reason           String
+  details          String?
+  status           ModerationStatus @default(OPEN)
+  resolutionNotes  String?
+  resolvedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  item        Item?        @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  reportedBy  User         @relation("ReportedByUserModeration", fields: [reportedByUserId], references: [id])
+  institution Institution? @relation(fields: [institutionId], references: [id], onDelete: SetNull)
+
+  @@index([itemId])
+  @@index([reportedByUserId])
+  @@index([status])
+}

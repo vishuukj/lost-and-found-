@@ -1,0 +1,26 @@
+{
+  "name": "lost-found-india",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Centralized Lost & Found digital platform for India",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "turbo run db:generate",
+    "db:push": "pnpm --filter @lost-found/database db:push",
+    "db:validate": "pnpm --filter @lost-found/database db:validate",
+    "db:seed": "pnpm --filter @lost-found/database db:seed"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.4",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.14.2"
+}
